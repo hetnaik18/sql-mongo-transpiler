@@ -570,12 +570,39 @@ const operators = ['>', '<', '=', '!=', '>=', '<='];
         // Build MongoDB filter from conditions
         function buildMongoFilter(conditions) {
             if (conditions.length === 0) return {};
-            
+
             const filter = {};
             conditions.forEach(cond => {
                 filter[cond.field] = cond.value;
             });
             return filter;
+        }
+
+        // SQL Syntax Validator
+        function validateSQLSyntax(tokens) {
+            // Check for SELECT
+            const hasSelect = tokens.some(t => t.upper === 'SELECT');
+            if (!hasSelect) {
+                return 'Missing SELECT clause';
+            }
+
+            // Check FROM clause completeness
+            const fromIndex = tokens.findIndex(t => t.upper === 'FROM');
+            if (fromIndex !== -1) {
+                if (fromIndex + 1 >= tokens.length || tokens[fromIndex + 1].type !== 'identifier') {
+                    return 'Incomplete syntax (Innovation parameter)';
+                }
+            }
+
+            // Check WHERE clause completeness
+            const whereIndex = tokens.findIndex(t => t.upper === 'WHERE');
+            if (whereIndex !== -1) {
+                if (whereIndex + 3 >= tokens.length) {
+                    return 'Incomplete syntax (Innovation parameter)';
+                }
+            }
+
+            return null; // Valid
         }
 
         // Animate sequential panel updates
@@ -658,6 +685,11 @@ const operators = ['>', '<', '=', '!=', '>=', '<='];
                 const tokens = tokenizeSQL(sql);
                 if (tokens.length === 0) {
                     throw new Error('No valid tokens detected in query.');
+                }
+
+                const syntaxError = validateSQLSyntax(tokens);
+                if (syntaxError) {
+                    throw new Error(syntaxError);
                 }
                 
                 const collection = extractTableName(tokens);
