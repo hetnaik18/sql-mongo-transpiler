@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QUANTUM QUERY CORE - SQL to MongoDB Transpiler</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: radial-gradient(circle at center, #0a0a1a 0%, #000000 70%);
+            color: #00ffff;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* CRT Scanlines */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 255, 255, 0.03) 2px,
+                rgba(0, 255, 255, 0.03) 4px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        /* Dynamic Grid Background */
+        .grid-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                linear-gradient(rgba(0,255,255,0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,255,255,0.1) 1px, transparent 1px);
+            background-size: 50px 50px;
+            animation: gridRotate 20s linear infinite;
+            z-index: 1;
+        }
+
+        @keyframes gridRotate {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Data Streams */
+        .data-stream {
+            position: fixed;
+            top: 0;
+            width: 100px;
+            height: 100%;
+            background: linear-gradient(180deg, transparent 0%, rgba(0,255,255,0.1) 50%, transparent 100%);
+            overflow: hidden;
+            z-index: 2;
+        }
+
+        .data-stream::before {
+            content: '101010 2F4A9B FFEECC 7D3C98 A1B2CD 4E5F70\\A 9B8C7D 3F2E1D 8D9EAF 6B5A49';
+            position: absolute;
+            top: -100%;
+            left: 0;
+            color: rgba(0,255,255,0.3);
+            font-size: 12px;
+            animation: stream 10s linear infinite;
+            white-space: nowrap;
+        }
+
+        .data-stream.right { right: 0; }
+
+        @keyframes stream {
+            0% { top: -100%; }
+            100% { top: 100%; }
+        }
+
+        /* Main Container */
+        .hud-container {
+            display: grid;
+            grid-template-rows: 80px 1fr;
+            height: 100vh;
+            padding: 20px;
+            gap: 20px;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* Title */
+        .title {
+            font-size: 3rem;
+            font-weight: bold;
+            text-align: center;
+            background: linear-gradient(45deg, #00ffff, #00bfff, #1e90ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 
+                0 0 10px #00ffff,
+                0 0 20px #00ffff,
+                0 0 30px #00bfff;
+            animation: glow 2s ease-in-out infinite alternate;
+            position: relative;
+        }
+
+        .title::before {
+            content: '';
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100px;
+            height: 4px;
+            background: linear-gradient(90deg, transparent, #00ffff, transparent);
+            box-shadow: 0 0 10px #00ffff;
+        }
+
+        @keyframes glow {
+            from { filter: drop-shadow(0 0 10px #00ffff); }
+            to { filter: drop-shadow(0 0 20px #00bfff); }
+        }
+
+        /* Content Grid */
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: auto 1fr auto;
+            gap: 20px;
+            height: 100%;
+        }
+
+        /* Input Panel */
+        .panel {
+            background: rgba(0, 20, 40, 0.8);
+            border: 2px solid #00ffff;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 
+                0 0 20px rgba(0,255,255,0.3),
+                inset 0 0 20px rgba(0,0,0,0.5);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0,255,255,0.2), transparent);
+            animation: shine 3s infinite;
+        }
+
+        @keyframes shine {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        .panel h3 {
+            color: #00ffff;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+            text-shadow: 0 0 10px #00ffff;
+        }
+
+        /* Input */
+        .input-group {
+            grid-column: 1 / -1;
+        }
+
+        #sqlInput {
+            width: 100%;
+            padding: 15px;
+            background: rgba(0,0,0,0.7);
+            border: 2px solid #00bfff;
+            border-radius: 8px;
+            color: #00ffff;
+            font-family: inherit;
+            font-size: 16px;
+            resize: vertical;
+            min-height: 80px;
+            box-shadow: 0 0 15px rgba(0,191,255,0.5);
+            transition: all 0.3s;
+        }
+
+        #sqlInput:focus {
+            outline: none;
+            border-color: #00ffff;
+            box-shadow: 0 0 25px rgba(0,255,255,0.7);
+        }
+
+        .btn-transpile {
+            grid-column: 1 / -1;
+            background: linear-gradient(45deg, #00ffff, #00bfff);
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 10px;
+            box-shadow: 0 5px 15px rgba(0,255,255,0.4);
+            transition: all 0.3s;
+            font-family: inherit;
+        }
+
+        .btn-transpile:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0,255,255,0.6);
+        }
+
+        /* Token List */
+        .tokens {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .token {
+            padding: 8px 12px;
+            background: rgba(0,191,255,0.2);
+            border: 1px solid #00bfff;
+            border-radius: 5px;
+            font-size: 14px;
+            animation: fadeInUp 0.5s ease forwards;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        .token.keyword { border-color: #ff00ff; background: rgba(255,0,255,0.2); }
+        .token.identifier { border-color: #ffff00; background: rgba(255,255,0,0.2); }
+        .token.string { border-color: #00ff00; background: rgba(0,255,0,0.2); }
+        .token.number { border-color: #ff8000; background: rgba(255,128,0,0.2); }
+        .token.operator { border-color: #ff4444; background: rgba(255,68,68,0.2); }
+
+        @keyframes fadeInUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Readouts */
+        .readouts {
+            display: flex;
+            gap: 20px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .readout {
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #00bfff;
+            min-width: 120px;
+        }
+
+        .readout-label { font-size: 12px; opacity: 0.7; }
+        .readout-value { font-size: 18px; font-weight: bold; color: #00ffff; }
+
+        /* Radar/Waveform */
+        .radar {
+            width: 60px;
+            height: 60px;
+            border: 2px solid #00bfff;
+            border-radius: 50%;
+            position: relative;
+            margin: 10px auto;
+        }
+
+        .radar::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 4px;
+            height: 4px;
+            background: #00ffff;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            animation: radarPulse 2s infinite;
+        }
+
+        .radar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border: 2px solid rgba(0,255,255,0.3);
+            border-radius: 50%;
+            animation: radarSweep 3s linear infinite;
+        }
+
+        @keyframes radarPulse {
+            0%, 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            50% { opacity: 0.5; transform: translate(-50%, -50%) scale(1.5); }
+        }
+
+        @keyframes radarSweep {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Mongo Output */
+        .mongo-output {
+            background: rgba(255,100,0,0.2) !important;
+            border-color: #ff6600 !important;
+            color: #ffaa00 !important;
+        }
+
+        .mongo-output .readout-value {
+            color: #ff6600 !important;
+        }
+
+        /* Error Console */
+        .error-console {
+            grid-column: 1 / -1;
+            background: rgba(255,0,0,0.2);
+            border-color: #ff4444;
+            min-height: 80px;
+            display: none;
+        }
+
+        .error-console.active {
+            display: block;
+            animation: shake 0.5s;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
+        /* Waveform */
+        .waveform {
+            height: 40px;
+            background: rgba(0,255,255,0.1);
+            border: 1px solid #00bfff;
+            border-radius: 5px;
+            position: relative;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .wave {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(45deg, #00ffff, #00bfff);
+            animation: oscillate 2s ease-in-out infinite;
+        }
+
+        /* Custom Cursor */
+        body {
+            cursor: none;
+        }
+
+        .custom-cursor {
+            position: fixed;
+            width: 20px;
+            height: 20px;
+            background: radial-gradient(circle, #00ffff 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 9999;
+            transition: transform 0.1s ease;
+            animation: cursorPulse 1.5s infinite;
+            box-shadow: 0 0 10px #00ffff;
+            mix-blend-mode: screen;
+        }
+
+        .custom-cursor::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 20px;
+            background: #00ffff;
+            transform: translate(-50%, -50%) rotate(0deg);
+            box-shadow: 0 0 5px #00ffff;
+        }
+
+        .custom-cursor::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 2px;
+            background: #00ffff;
+            transform: translate(-50%, -50%) rotate(90deg);
+            box-shadow: 0 0 5px #00ffff;
+        }
+
+        .btn-transpile:hover ~ .custom-cursor,
+        .btn-transpile:hover + .custom-cursor {
+            background: radial-gradient(circle, #ff00ff 0%, transparent 70%);
+            animation: cursorRotate 0.5s linear infinite;
+        }
+
+        @keyframes cursorPulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+        }
+
+        @keyframes cursorRotate {
+            0% { transform: rotate(0deg) scale(1.2); }
+            100% { transform: rotate(360deg) scale(1.2); }
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="grid-bg"></div>
+    <div class="data-stream"></div>
+    <div class="data-stream right"></div>
+
+    <div class="custom-cursor" id="cursor"></div>
+
+    <div class="hud-container">
+        <div class="title">QUANTUM QUERY CORE</div>
+        
+        <div class="content-grid">
+            <div class="panel input-group">
+                <h3>SQL Input Terminal</h3>
+                <textarea id="sqlInput" placeholder="Enter SQL query (e.g., SELECT * FROM users WHERE age > 25 AND name = 'John')"></textarea>
+                <button class="btn-transpile" onclick="transpileSQL()">TRANSPiLE QUERY</button>
+            </div>
+
+            <div class="panel" id="lexicalPanel">
+                <h3>Lexical Analysis</h3>
+                <div class="tokens" id="tokensList"></div>
+                <div class="readouts">
+                    <div class="readout">
+                        <div class="readout-label">Token Count</div>
+                        <div class="readout-value" id="tokenCount">0</div>
+                    </div>
+                    <div class="readout">
+                        <div class="readout-label">Analysis Speed</div>
+                        <div class="readout-value" id="analysisSpeed">0 ms</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel" id="syntaxPanel">
+                <h3>Syntax Mapping</h3>
+                <div class="readouts">
+                    <div class="readout">
+                        <div class="readout-label">Target Collection</div>
+                        <div class="readout-value" id="targetCollection">--</div>
+                    </div>
+                    <div class="readout">
+                        <div class="readout-label">Filter Key</div>
+                        <div class="readout-value" id="filterKey">--</div>
+                    </div>
+                    <div class="readout">
+                        <div class="readout-label">Filter Value</div>
+                        <div class="readout-value" id="filterValue">--</div>
+                    </div>
+                </div>
+                <div class="waveform">
+                    <div class="wave"></div>
+                </div>
+            </div>
+
+            <div class="panel mongo-output" id="mongoPanel">
+                <h3>MongoDB Output</h3>
+                <pre id="mongoOutput" style="background: rgba(0,0,0,0.7); padding: 15px; border-radius: 5px; white-space: pre-wrap; font-size: 14px; height: 200px; overflow-y: auto; border: 1px solid #ff6600;"></pre>
+            </div>
+
+            <div class="panel error-console" id="errorConsole">
+                <h3>ERROR CONSOLE</h3>
+                <div id="errorMessage"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simple SQL tokenizer
+        function tokenizeSQL(sql) {
+            const tokens = [];
+            const keywords = ['SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'IN', 'LIKE', '*'];
+const operators = ['>', '<', '=', '!=', '>=', '<='];
+            
+            // Simple regex-based tokenization
+            // Better tokenization for SQL
+            const upperSql = sql.toUpperCase();
+            const improvedRegex = /(".*?"|'.*?'|\w+|[><=]=?|!=| \*)/gi;
+            let match;
+            
+            while ((match = improvedRegex.exec(sql)) !== null) {
+                let token = match[0].trim();
+                if (!token) continue;
+                let type = 'identifier';
+                const upperToken = token.toUpperCase();
+                
+                if (keywords.includes(upperToken)) type = 'keyword';
+                else if (operators.some(op => upperToken.includes(op))) type = 'operator';
+                else if (token.match(/^".*"$|^'.*'$/)) type = 'string';
+                else if (token === '*') type = 'wildcard';
+                else if (!isNaN(token)) type = 'number';
+                
+                tokens.push({ value: token, type, upper: upperToken });
+            }
+            
+            return tokens;
+        }
+
+        // Extract table name from FROM clause
+        function extractTableName(tokens) {
+            for (let i = 0; i < tokens.length; i++) {
+                if (tokens[i].upper === 'FROM' && i + 1 < tokens.length) {
+                    return tokens[i + 1].value;
+                }
+            }
+            return 'students';
+        }
+
+        // Extract WHERE conditions - processCompiler logic
+        function extractConditions(tokens) {
+            const conditions = [];
+            const whereIndex = tokens.findIndex(t => t.upper === 'WHERE');
+            
+            if (whereIndex !== -1 && whereIndex + 3 < tokens.length) {
+                const filterKey = tokens[whereIndex + 1]?.value || '';
+                const op = tokens[whereIndex + 2]?.value || '';
+                const filterValue = tokens[whereIndex + 3]?.value || '';
+                
+                if (filterKey && op === '=' && filterValue) {
+                    conditions.push({ 
+                        field: filterKey, 
+                        value: filterValue.replace(/['"]/g, '') 
+                    });
+                }
+            }
+            
+            return conditions;
+        }
+
+        // Build MongoDB filter from conditions
+        function buildMongoFilter(conditions) {
+            if (conditions.length === 0) return {};
+            
+            const filter = {};
+            conditions.forEach(cond => {
+                filter[cond.field] = cond.value;
+            });
+            return filter;
+        }
+
+        // Animate sequential panel updates
+        async function updatePanelsSequentially(collection, filter) {
+            // Clear all panels
+            document.getElementById('tokensList').innerHTML = '';
+            document.getElementById('tokenCount').textContent = '0';
+            document.getElementById('analysisSpeed').textContent = '0 ms';
+            document.getElementById('targetCollection').textContent = '--';
+            document.getElementById('filterKey').textContent = '--';
+            document.getElementById('filterValue').textContent = '--';
+            document.getElementById('mongoOutput').textContent = '';
+            
+            // 1. Lexical Analysis
+            const start = performance.now();
+            const tokens = tokenizeSQL(document.getElementById('sqlInput').value);
+            const end = performance.now();
+            
+            document.getElementById('tokenCount').textContent = tokens.length;
+            document.getElementById('analysisSpeed').textContent = Math.round(end - start) + ' ms';
+            
+            // Animate tokens
+            tokens.forEach((token, index) => {
+                setTimeout(() => {
+                    const div = document.createElement('div');
+                    div.className = `token ${token.type}`;
+                    div.textContent = `${token.value}`;
+                    div.title = token.type.toUpperCase();
+                    document.getElementById('tokensList').appendChild(div);
+                }, index * 100);
+            });
+            
+            await new Promise(resolve => setTimeout(resolve, tokens.length * 100 + 500));
+            
+            // 2. Syntax Mapping
+            const tableName = extractTableName(tokens);
+            const conditions = extractConditions(tokens);
+            const filterKey = conditions[0]?.field || '--';
+            const filterValue = conditions[0]?.value || '--';
+            
+            document.getElementById('targetCollection').textContent = tableName;
+            document.getElementById('filterKey').textContent = filterKey;
+            document.getElementById('filterValue').textContent = filterValue;
+            
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // 3. MongoDB Output - Proper MongoDB shell format
+            const mongoFilter = buildMongoFilter(conditions);
+            const mongoQueryStr = `db.${collection}.find(${JSON.stringify(mongoFilter, null, 2)})`;
+            const pre = document.getElementById('mongoOutput');
+            let i = 0;
+            
+            function typeOutput() {
+                if (i < mongoQueryStr.length) {
+                    pre.textContent += mongoQueryStr.charAt(i);
+                    i++;
+                    setTimeout(typeOutput, 30);
+                }
+            }
+            
+            typeOutput();
+        }
+
+        // Main transpilation function
+        async function transpileSQL() {
+            const errorConsole = document.getElementById('errorConsole');
+            const errorMsg = document.getElementById('errorMessage');
+            
+            // Hide error console
+            errorConsole.classList.remove('active');
+            
+            const sql = document.getElementById('sqlInput').value.trim();
+            if (!sql) {
+                errorMsg.textContent = 'ERROR: No SQL query provided. Initialize data stream.';
+                errorConsole.classList.add('active');
+                return;
+            }
+            
+            try {
+                const tokens = tokenizeSQL(sql);
+                if (tokens.length === 0) {
+                    throw new Error('No valid tokens detected in query.');
+                }
+                
+                const collection = extractTableName(tokens);
+                await updatePanelsSequentially(collection, null);
+                
+            } catch (error) {
+                errorMsg.textContent = `SYNTAX ERROR: ${error.message}`;
+                errorConsole.classList.add('active');
+            }
+        }
+
+        // Custom cursor tracking
+        const cursor = document.getElementById('cursor');
+        document.addEventListener('mousemove', (e) => {
+            cursor.style.left = e.clientX + 'px';
+            cursor.style.top = e.clientY + 'px';
+        });
+
+        // Button hover effect for cursor
+        const btnTranspile = document.querySelector('.btn-transpile');
+        btnTranspile.addEventListener('mouseenter', () => {
+            cursor.style.transform = 'scale(1.5) rotate(45deg)';
+        });
+        btnTranspile.addEventListener('mouseleave', () => {
+            cursor.style.transform = 'scale(1)';
+        });
+
+        // Keyboard shortcut
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                transpileSQL();
+            }
+        });
+    </script>
+</body>
+</html>
